@@ -13,7 +13,13 @@ app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
 
 # Google Calendar API setup
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
-CLIENT_SECRETS_FILE = 'credentials.json'
+
+def get_credentials_dict():
+    """Get credentials from environment variable"""
+    creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
+    if not creds_json:
+        raise ValueError("GOOGLE_CREDENTIALS_JSON environment variable not set")
+    return json.loads(creds_json)
 
 def get_calendar_service():
     """Get authenticated Google Calendar service"""
@@ -137,8 +143,10 @@ def index():
 def authorize():
     """Start OAuth flow"""
     try:
-        flow = Flow.from_client_secrets_file(
-            CLIENT_SECRETS_FILE,
+        credentials_dict = get_credentials_dict()
+
+        flow = Flow.from_client_config(
+            credentials_dict,
             scopes=SCOPES,
             redirect_uri=os.environ.get('REDIRECT_URI', 'http://localhost:5000/callback')
         )
@@ -147,21 +155,25 @@ def authorize():
         session['state'] = state
 
         return redirect(auth_url)
-    except FileNotFoundError:
-        return "Error: credentials.json not found. Please set up Google API credentials.", 500
+    except Exception as e:
+        print(f"Auth init error: {e}")
+        return f"Error: {str(e)}", 500
 
 @app.route('/callback')
 def callback():
     """OAuth callback"""
     state = session.get('state')
-    flow = Flow.from_client_secrets_file(
-        CLIENT_SECRETS_FILE,
-        scopes=SCOPES,
-        state=state,
-        redirect_uri=os.environ.get('REDIRECT_URI', 'http://localhost:5000/callback')
-    )
 
     try:
+        credentials_dict = get_credentials_dict()
+
+        flow = Flow.from_client_config(
+            credentials_dict,
+            scopes=SCOPES,
+            state=state,
+            redirect_uri=os.environ.get('REDIRECT_URI', 'http://localhost:5000/callback')
+        )
+
         flow.fetch_token(authorization_response=request.url)
 
         credentials = flow.credentials
@@ -177,7 +189,7 @@ def callback():
         return redirect(url_for('index'))
     except Exception as e:
         print(f"Auth error: {e}")
-        return "Authentication failed", 500
+        return f"Authentication failed: {str(e)}", 500
 
 @app.route('/logout')
 def logout():
